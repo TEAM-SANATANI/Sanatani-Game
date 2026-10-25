@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: sanatani-game-bot
+    env: python
+    region: ohio
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+    - key: API_ID
+      sync: false
+    - key: API_HASH
+      sync: false
+    - key: OWNER_ID
+      sync: false
+    - key: LOGGER_ID
+      sync: false
+    - key: TELEGRAM_BOT_TOKEN
+      sync: false
+    - key: MONGO_URI
+      sync: false
