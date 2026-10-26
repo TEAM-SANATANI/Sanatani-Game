@@ -2,6 +2,7 @@ import os
 import logging
 import threading
 import random
+import asyncio
 from flask import Flask
 from pymongo import MongoClient
 from dotenv import load_dotenv
@@ -57,14 +58,6 @@ def update_balance(user_id, amount, username="Devotee"):
         },
         upsert=True
     )
-
-# --- Helper to send logs to Logger ID ---
-async def send_log(context: ContextTypes.DEFAULT_TYPE, message: str):
-    if LOGGER_ID != 0:
-        try:
-            await context.bot.send_message(chat_id=LOGGER_ID, text=f"📊 **Bot Log:**\n{message}", parse_mode="Markdown")
-        except Exception as e:
-            logger.error(f"Failed to send log to Logger ID: {e}")
 
 # --- Telegram Bot Commands & Handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -254,7 +247,6 @@ async def leaderboard_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(text, parse_mode="Markdown")
 
-# --- Owner-only Broadcast Command ---
 async def broadcast_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if user.id != OWNER_ID:
@@ -308,10 +300,10 @@ def home():
 
 def run_flask():
     port = int(os.getenv("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=port, use_reloader=False)
 
-# --- Main Application ---
-def main():
+# --- Main Application Runner ---
+async def main():
     if not TOKEN:
         logger.error("TELEGRAM_BOT_TOKEN environment variable not set!")
         return
@@ -319,10 +311,11 @@ def main():
         logger.error("MONGO_URI environment variable not set!")
         return
 
-    flask_thread = threading.Thread(target=run_flask)
-    flask_thread.daemon = True
+    # Start Flask server in a daemon thread
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
 
+    # Build and start Telegram application with explicit event loop management
     application = Application.builder().token(TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
@@ -339,7 +332,20 @@ def main():
     application.add_handler(CallbackQueryHandler(button_handler))
 
     logger.info("Sanatani Game Bot is polling...")
-    application.run_polling()
+    
+    # Explicitly initialize, start, and run polling to avoid Python 3.14 main thread loop errors
+    await application.initialize()
+    await application.start()
+    await application.updater.start_polling()
+    
+    # Keep the application running until stopped
+    stop_event = asyncio.Event()
+    try:
+        await stop_event.wait()
+    finally:
+        await application.updater.stop()
+        await application.stop()
+        await application.shutdown()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
