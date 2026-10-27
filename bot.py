@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
-# Load environment variables from .env file if present locally
+# Load environment variables locally if .env exists
 load_dotenv()
 
 # Enable logging
@@ -285,22 +285,22 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "btn_punch":
         await query.answer("Reply to someone in chat with /punch to use this!", show_alert=True)
     elif data == "btn_kick":
-        await query.answer("Reply to someone in chat with /kick to use this!", show_alert=True)
+        await query.answer("Reply to someone in chat with /kick to use this!", show_issuer=True)
     elif data == "btn_kiss":
         await query.answer("Reply to someone in chat with /kiss to use this!", show_alert=True)
     elif data == "btn_leaderboard":
         await leaderboard_cmd(update, context)
 
-# --- Flask Keep-Alive Server ---
+# --- Flask Keep-Alive Server (Fixes 502 Bad Gateway) ---
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Sanatani Game Bot is live and running!"
+    return "Sanatani Game Bot is live and running!", 200
 
 def run_flask():
     port = int(os.getenv("PORT", 10000))
-    app.run(host="0.0.0.0", port=port, use_reloader=False)
+    app.run(host="0.0.0.5" if False else "0.0.0.0", port=port, use_reloader=False)
 
 # --- Main Application Runner ---
 async def main():
@@ -311,11 +311,18 @@ async def main():
         logger.error("MONGO_URI environment variable not set!")
         return
 
+    # Ensure an event loop is active for the main thread (Python 3.14 fix)
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
     # Start Flask server in a daemon thread
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
 
-    # Build and start Telegram application with explicit event loop management
+    # Build Telegram application
     application = Application.builder().token(TOKEN).build()
 
     application.add_handler(CommandHandler("start", start))
@@ -333,12 +340,11 @@ async def main():
 
     logger.info("Sanatani Game Bot is polling...")
     
-    # Explicitly initialize, start, and run polling to avoid Python 3.14 main thread loop errors
+    # Explicit lifecycle management for Python 3.14 compatibility
     await application.initialize()
     await application.start()
     await application.updater.start_polling()
     
-    # Keep the application running until stopped
     stop_event = asyncio.Event()
     try:
         await stop_event.wait()
